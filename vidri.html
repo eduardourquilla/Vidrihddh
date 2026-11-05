@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ofertas Vidrí</title>
+<style>
+:root{--bg:#f6f5f2;--card:#fff;--ink:#1d2327;--mute:#6b7378;--line:#dcdad4;--pct:#c8321e;--ok:#146c43}
+@media(prefers-color-scheme:dark){:root{--bg:#14181b;--card:#1d2327;--ink:#eceae4;--mute:#97a0a6;--line:#2f373c;--pct:#ff7a63;--ok:#5fcf9a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,sans-serif}
+main{max-width:640px;margin:0 auto;padding:16px}
+h1{font-size:1.4rem;margin:0 0 12px}
+textarea,input{width:100%;font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px}
+.row{display:flex;gap:8px;align-items:end;margin:8px 0}
+.row label{flex:1;color:var(--mute);font-size:.85rem}
+button{font:inherit;font-weight:600;padding:9px 18px;border:0;border-radius:8px;background:var(--ink);color:var(--bg)}
+button:disabled{opacity:.5}
+#st{color:var(--mute);font-size:.9rem;min-height:1.3em}
+.it{display:grid;grid-template-columns:1fr auto;gap:2px 12px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:8px;color:inherit;text-decoration:none}
+.it b{font-weight:600}
+.pct{grid-row:span 2;align-self:center;font-weight:700;font-size:1.2rem;color:var(--pct)}
+.pr{color:var(--ok);font-weight:600}
+s{color:var(--mute);margin-right:6px}
+:focus-visible{outline:2px solid var(--pct);outline-offset:2px}
+</style>
+</head>
+<body>
+<main>
+<h1>Ofertas Vidrí</h1>
+<textarea id="src" rows="3" aria-label="Páginas a revisar">/promociones
+/landing/12</textarea>
+<div class="row">
+  <label>Descuento mínimo (%)<input id="min" type="number" value="10" inputmode="numeric"></label>
+  <button id="go">Buscar</button>
+</div>
+<p id="st"></p>
+<div id="out"></div>
+</main>
+<script>
+const B='https://www.vidri.com.sv', MAX=60, LOTE=6;
+const PROXIES=['https://corsproxy.io/?url=','https://api.allorigins.win/raw?url='];
+const $=id=>document.getElementById(id);
+const num=s=>parseFloat(s.replace(/,/g,''));
+const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+async function get(u){
+  for(const p of PROXIES){
+    try{const r=await fetch(p+encodeURIComponent(u));if(r.ok)return await r.text()}catch{}
+  }
+  throw new Error('sin acceso a '+u);
+}
+
+async function producto(url){
+  const h=await get(url);
+  const t=h.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<[^>]+>/g,' ').replace(/\s+/g,' ');
+  const a=t.match(/Antes:?\s*\$?\s*([\d.,]+)/i);
+  const s=t.match(/Ahorro:?\s*\$?\s*([\d.,]+)\s*\((\d+)%\)/i);
+  if(!a||!s)return null;
+  const antes=num(a[1]), ahorro=num(s[1]);
+  return{nombre:(h.match(/<title>([^<|]+)/i)||[])[1]?.trim(),antes,precio:antes-ahorro,pct:+s[2],url};
+}
+
+function pintar(l){
+  l.sort((x,y)=>y.pct-x.pct);
+  $('out').innerHTML=l.map(p=>`<a class="it" href="${esc(p.url)}" target="_blank" rel="noopener">
+    <b>${esc(p.nombre)}</b><span class="pct">−${p.pct}%</span>
+    <span><s>$${p.antes.toFixed(2)}</s><span class="pr">$${p.precio.toFixed(2)}</span></span></a>`).join('');
+}
+
+$('go').onclick=async()=>{
+  const btn=$('go'), st=$('st'), min=+$('min').value||0, res=[];
+  btn.disabled=true; $('out').innerHTML=''; st.textContent='Buscando productos…';
+  try{
+    const links=new Set();
+    for(const p of $('src').value.split('\n').map(x=>x.trim()).filter(Boolean)){
+      const h=await get(p.startsWith('http')?p:B+p);
+      (h.match(/\/producto\/\d+\/[^"'\s<>]+\.html/g)||[]).forEach(l=>links.add(B+l));
+    }
+    const lista=[...links].slice(0,MAX);
+    if(!lista.length){st.textContent='No encontré productos en esas páginas.';return}
+    for(let i=0;i<lista.length;i+=LOTE){
+      const r=await Promise.all(lista.slice(i,i+LOTE).map(u=>producto(u).catch(()=>null)));
+      res.push(...r.filter(p=>p&&p.pct>=min));
+      pintar(res);
+      st.textContent=`Revisados ${Math.min(i+LOTE,lista.length)} de ${lista.length} · ${res.length} con descuento`;
+    }
+  }catch(e){st.textContent='Error: '+e.message}
+  finally{btn.disabled=false}
+};
+</script>
+</body>
+</html>
